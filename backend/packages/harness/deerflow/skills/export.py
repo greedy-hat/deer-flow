@@ -368,6 +368,7 @@ def _open_directory_chain(path, budget):
 def _capture(storage, name, snapshot, budget):
     if not isinstance(name, str) or len(name) > 64 or not _NAME.fullmatch(name):
         raise SkillExportError(422, "skill_export_unsupported", "Invalid skill name.")
+    storage.prepare_custom_skill_export(name)
     root = storage.get_custom_skill_dir(name)
     budget.check()
     try:

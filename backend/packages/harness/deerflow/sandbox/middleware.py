@@ -89,6 +89,10 @@ class SandboxMiddleware(AgentMiddleware[SandboxMiddlewareState]):
 
     def _prepare_agent_skill_projection(self, thread_id: str, *, user_id: str):
         """Build the run's physical skill view before any sandbox is reused."""
+        from deerflow.skills.loading import backend_skills_enabled
+
+        if backend_skills_enabled():
+            return None
         if not self._owns_agent_skill_projection:
             # Subagents inherit the lead's thread id and sandbox state. Their
             # skill lists scope discovery/activation only; rebuilding here
@@ -559,7 +563,13 @@ class SandboxMiddleware(AgentMiddleware[SandboxMiddlewareState]):
         handler: Callable[[ToolCallRequest], ToolMessage | Command],
     ) -> ToolMessage | Command:
         prev_sandbox_id = self._read_sandbox_id_from_request(request)
-        result = handler(request)
+        from deerflow.skills.loading import available_skill_names
+
+        token = available_skill_names.set(self._available_skills)
+        try:
+            result = handler(request)
+        finally:
+            available_skill_names.reset(token)
         curr_sandbox_id = self._read_sandbox_id_from_request(request)
         if curr_sandbox_id is not None and curr_sandbox_id != prev_sandbox_id:
             result = self._attach_sandbox_update(
@@ -576,7 +586,13 @@ class SandboxMiddleware(AgentMiddleware[SandboxMiddlewareState]):
         handler: Callable[[ToolCallRequest], Awaitable[ToolMessage | Command]],
     ) -> ToolMessage | Command:
         prev_sandbox_id = self._read_sandbox_id_from_request(request)
-        result = await handler(request)
+        from deerflow.skills.loading import available_skill_names
+
+        token = available_skill_names.set(self._available_skills)
+        try:
+            result = await handler(request)
+        finally:
+            available_skill_names.reset(token)
         curr_sandbox_id = self._read_sandbox_id_from_request(request)
         if curr_sandbox_id is not None and curr_sandbox_id != prev_sandbox_id:
             result = self._attach_sandbox_update(

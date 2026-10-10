@@ -37,6 +37,8 @@ class SkillsConfig(BaseModel):
         default=False,
         description=("When enabled, skill metadata is not injected into the system prompt. Instead, only skill names appear in <skill_index> and the LLM discovers details on demand via the describe_skill tool."),
     )
+    langfuse_prefix: str = Field(default="deerflow/skills", pattern=r"^[a-zA-Z0-9_-]+(?:/[a-zA-Z0-9_-]+)*$")
+    langfuse_label: str = Field(default="production", min_length=1)
 
     def get_skills_path(self) -> Path:
         """

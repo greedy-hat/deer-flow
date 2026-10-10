@@ -2052,6 +2052,14 @@ verification:
 # Configure skills directory for specialized agent workflows
 
 skills:
+  # Text-only cloud support skills, versioned in Langfuse.
+  # Requires LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY and LANGFUSE_BASE_URL.
+  # Each text prompt contains the complete SKILL.md, including frontmatter.
+  use: deerflow.skills.storage.langfuse_skill_storage:LangfuseSkillStorage
+  langfuse_prefix: deerflow/skills
+  langfuse_label: production
+  # For legacy file-based skill packages, explicitly use:
+  # use: deerflow.skills.storage.local_skill_storage:LocalSkillStorage
   # Path to skills directory on the host (relative to project root or absolute)
   # Default: skills under the project root
   # Override with DEER_FLOW_SKILLS_PATH when this field is omitted.

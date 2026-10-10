@@ -48,6 +48,9 @@ class SkillProjectionPaths:
 
 
 def get_skill_projection_paths(storage: SkillStorage) -> SkillProjectionPaths:
+    if getattr(storage, "text_only", False) is True:
+        root = storage.get_skills_root_path() / ".sandbox-empty" / storage.user_id
+        return SkillProjectionPaths(*(root / category for category in ("public", "custom", "legacy", "integrations")))
     from deerflow.config.paths import get_paths
 
     paths = getattr(storage, "_paths", None) or get_paths()
@@ -683,6 +686,10 @@ def _public_projection_is_fresh(storage: SkillStorage, paths: SkillProjectionPat
 def ensure_skill_projections(storage: SkillStorage) -> SkillProjectionPaths:
     """Repair stale projection scopes, otherwise leave their inodes untouched."""
     paths = get_skill_projection_paths(storage)
+    if getattr(storage, "text_only", False) is True:
+        for root in (paths.public, paths.custom, paths.legacy, paths.integrations):
+            root.mkdir(parents=True, exist_ok=True)
+        return paths
 
     try:
         public_is_fresh = _public_projection_is_fresh(storage, paths)

@@ -230,8 +230,8 @@ def _patch_user_storage_resolution(monkeypatch, cls=SlowUserSkillStorage) -> Non
     monkeypatch.setattr("deerflow.config.get_app_config", lambda: _APP_CONFIG)
     monkeypatch.setattr("deerflow.config.paths.get_paths", lambda: Paths(base_dir=Path("/tmp")))
     monkeypatch.setattr("deerflow.config.paths._paths", None)
-    # get_or_new_user_skill_storage calls UserScopedSkillStorage(user_id, **kwargs)
-    # directly — not via resolve_class. Patch the class reference in the module.
+    # Scoped backends now use the configured storage class when applicable.
+    monkeypatch.setattr("deerflow.reflection.resolve_class", lambda *args, **kwargs: cls)
     monkeypatch.setattr("deerflow.skills.storage.UserScopedSkillStorage", cls)
 
 

@@ -260,6 +260,8 @@ class SkillActivationMiddleware(AgentMiddleware):
     def _read_skill_content(skill_file: Path, skills_root: Path, *, storage: SkillStorage | None = None) -> str:
         if skill_file.name != SKILL_MD_FILE:
             raise ValueError(f"Expected {SKILL_MD_FILE}, got {skill_file.name}")
+        if isinstance(storage, SkillStorage):
+            return storage.read_skill_content(skill_file)
         # Use the storage's path validation if available — UserScopedSkillStorage
         # stores custom skills in a per-user directory that is not a sub-path of
         # the global skills root, so the simple relative_to check would reject them.

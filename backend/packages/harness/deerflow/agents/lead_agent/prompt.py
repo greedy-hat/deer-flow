@@ -291,12 +291,12 @@ If you used a skill and encountered issues not covered by it, patch it immediate
 - `skill_manage(action="create", name="my-skill", content="...")` — Create a new skill
 - `skill_manage(action="patch", name="my-skill", find="...", replace="...")` — Patch an existing skill
 - `skill_manage(action="edit", name="my-skill", content="...")` — Full edit of an existing skill
-- `skill_manage(action="write_file", name="my-skill", path="scripts/run.py", content="...")` — Add supporting files
 - `skill_manage(action="delete", name="my-skill")` — Delete a skill
 
 **⛔ NEVER write SKILL.md files to `/mnt/user-data/workspace` or `/mnt/user-data/outputs`.**
 Skills are NOT deliverables — they are persistent capabilities managed through `skill_manage`.
-The tool stores skills in the per-user skills directory automatically; you do NOT need to specify a path.
+Skills contain self-contained instructions and knowledge; do not add scripts or attachments.
+The tool stores skills in your configured per-user storage automatically; you do NOT need to specify a path.
 
 Prefer patch over edit. Before creating a new skill, confirm with the user first.
 Skip simple one-off tasks.

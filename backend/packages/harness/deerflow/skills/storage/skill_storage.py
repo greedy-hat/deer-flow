@@ -66,6 +66,8 @@ class SkillStorage(ABC):
     compose them with protocol-level helpers.
     """
 
+    text_only: bool = False
+
     def __init__(self, container_path: str = DEFAULT_SKILLS_CONTAINER_PATH) -> None:
         self._container_root = container_path
 
@@ -284,7 +286,7 @@ class SkillStorage(ABC):
 
     @abstractmethod
     def append_history(self, name: str, record: dict) -> None:
-        """Append a JSONL history entry for ``name``.
+        """Append a history entry for ``name`` in the configured backend.
 
         Origin: ``deerflow.skills.manager.append_history``.
         """
@@ -303,6 +305,21 @@ class SkillStorage(ABC):
     def get_container_root(self) -> str:
         """Origin: ``deerflow.config.skills_config.SkillsConfig.container_path`` accessor."""
         return self._container_root
+
+    def read_skill_content(self, skill_file: Path) -> str:
+        return self.validate_skill_file_path(skill_file).read_text(encoding="utf-8")
+
+    def save_custom_skill(self, name: str, content: str, *, history_meta: dict | None = None) -> None:
+        """Save text and its history together when the backend supports it."""
+        self.write_custom_skill(name, SKILL_MD_FILE, content)
+        if history_meta is not None:
+            self.append_history(name, history_meta)
+
+    def custom_skill_history_exists(self, name: str) -> bool:
+        return self.get_skill_history_file(name).exists()
+
+    def prepare_custom_skill_export(self, name: str) -> None:
+        """Refresh a remote backend's local export snapshot, if needed."""
 
     def get_custom_skill_dir(self, name: str) -> Path:
         """Path to ``custom/<name>``. Does not create the directory.

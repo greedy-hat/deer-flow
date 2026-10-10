@@ -122,7 +122,10 @@ async def _skill_manage_impl(
     replace: str | None = None,
     expected_count: int | None = None,
 ) -> str:
-    """Manage custom skills under skills/custom/.
+    """Manage custom skills in the configured per-user storage.
+
+    Text-only skills support create, patch, edit and delete. Scripts and
+    supporting files are rejected by text-only storage.
 
     Args:
         action: One of create, patch, edit, delete, write_file, remove_file.
@@ -151,11 +154,11 @@ async def _skill_manage_impl(
             static_findings = await _scan_static_candidate_or_raise(name, {SKILL_MD_FILE: content})
             scan = await _scan_or_raise(content, executable=False, location=f"{name}/{SKILL_MD_FILE}", static_findings=static_findings)
             scan["static_findings"] = static_findings
-            await _to_thread(skill_storage.write_custom_skill, name, SKILL_MD_FILE, content)
             await _to_thread(
-                skill_storage.append_history,
+                skill_storage.save_custom_skill,
                 name,
-                _history_record(action="create", file_path=SKILL_MD_FILE, prev_content=None, new_content=content, thread_id=thread_id, scanner=scan),
+                content,
+                history_meta=_history_record(action="create", file_path=SKILL_MD_FILE, prev_content=None, new_content=content, thread_id=thread_id, scanner=scan),
             )
             await refresh_user_skills_system_prompt_cache_async(user_id)
             return f"Created custom skill '{name}'."
@@ -167,13 +170,12 @@ async def _skill_manage_impl(
             static_findings = await _scan_static_candidate_or_raise(name, {SKILL_MD_FILE: content})
             scan = await _scan_or_raise(content, executable=False, location=f"{name}/{SKILL_MD_FILE}", static_findings=static_findings)
             scan["static_findings"] = static_findings
-            skill_file = skill_storage.get_custom_skill_file(name)
-            prev_content = await _to_thread(skill_file.read_text, encoding="utf-8")
-            await _to_thread(skill_storage.write_custom_skill, name, SKILL_MD_FILE, content)
+            prev_content = await _to_thread(skill_storage.read_custom_skill, name)
             await _to_thread(
-                skill_storage.append_history,
+                skill_storage.save_custom_skill,
                 name,
-                _history_record(action="edit", file_path=SKILL_MD_FILE, prev_content=prev_content, new_content=content, thread_id=thread_id, scanner=scan),
+                content,
+                history_meta=_history_record(action="edit", file_path=SKILL_MD_FILE, prev_content=prev_content, new_content=content, thread_id=thread_id, scanner=scan),
             )
             await refresh_user_skills_system_prompt_cache_async(user_id)
             return f"Updated custom skill '{name}'."
@@ -182,8 +184,7 @@ async def _skill_manage_impl(
             await _to_thread(skill_storage.ensure_custom_skill_is_editable, name)
             if find is None or replace is None:
                 raise ValueError("find and replace are required for patch.")
-            skill_file = skill_storage.get_custom_skill_file(name)
-            prev_content = await _to_thread(skill_file.read_text, encoding="utf-8")
+            prev_content = await _to_thread(skill_storage.read_custom_skill, name)
             occurrences = prev_content.count(find)
             if occurrences == 0:
                 raise ValueError("Patch target not found in SKILL.md.")
@@ -195,11 +196,11 @@ async def _skill_manage_impl(
             static_findings = await _scan_static_candidate_or_raise(name, {SKILL_MD_FILE: new_content})
             scan = await _scan_or_raise(new_content, executable=False, location=f"{name}/{SKILL_MD_FILE}", static_findings=static_findings)
             scan["static_findings"] = static_findings
-            await _to_thread(skill_storage.write_custom_skill, name, SKILL_MD_FILE, new_content)
             await _to_thread(
-                skill_storage.append_history,
+                skill_storage.save_custom_skill,
                 name,
-                _history_record(action="patch", file_path=SKILL_MD_FILE, prev_content=prev_content, new_content=new_content, thread_id=thread_id, scanner=scan),
+                new_content,
+                history_meta=_history_record(action="patch", file_path=SKILL_MD_FILE, prev_content=prev_content, new_content=new_content, thread_id=thread_id, scanner=scan),
             )
             await refresh_user_skills_system_prompt_cache_async(user_id)
             return f"Patched custom skill '{name}' ({replacement_count} replacement(s) applied, {occurrences} match(es) found)."

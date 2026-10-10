@@ -2755,7 +2755,14 @@ def _read_file_from_sandbox(
     start_line: int | None = None,
     end_line: int | None = None,
 ) -> str:
-    """Read through the sandbox while preserving provider-owned mount paths."""
+    """Read text skills in the backend and other files through the sandbox."""
+    from deerflow.skills.loading import is_backend_skill_path, read_backend_skill
+
+    if is_backend_skill_path(path):
+        content = read_backend_skill(runtime, path)
+        if start_line is not None or end_line is not None:
+            return "\n".join(content.splitlines()[(start_line or 1) - 1 : end_line])
+        return content
     sandbox = ensure_sandbox_initialized(runtime)
     ensure_thread_directories_exist(runtime)
     if is_local_sandbox(runtime):
@@ -2863,6 +2870,10 @@ async def _read_file_tool_async(
     start_line: int | None = None,
     end_line: int | None = None,
 ) -> str:
+    from deerflow.skills.loading import is_backend_skill_path
+
+    if await asyncio.to_thread(is_backend_skill_path, path):
+        return await asyncio.to_thread(read_file_tool.func, runtime, path, description, start_line, end_line)
     return await _run_sync_tool_after_async_sandbox_init(read_file_tool.func, runtime, path, description, start_line, end_line)
 
 

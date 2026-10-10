@@ -598,11 +598,11 @@ async def update_custom_skill(skill_name: str, body: CustomSkillUpdateRequest, r
             # The write and its history entry must settle together, and the
             # prompt cache must not stay stale behind them: a cancelled caller
             # drains the whole mutation tail instead of cutting it mid-sequence.
-            await asyncio.to_thread(storage.write_custom_skill, skill_name, SKILL_MD_FILE, body.content)
             await asyncio.to_thread(
-                storage.append_history,
+                storage.save_custom_skill,
                 skill_name,
-                {
+                body.content,
+                history_meta={
                     "action": "human_edit",
                     "author": "human",
                     "thread_id": None,
@@ -677,7 +677,7 @@ async def get_custom_skill_history(skill_name: str, request: Request, config: Ap
             # history-file read are blocking filesystem IO that must stay off the
             # event loop. None signals 404 to the caller.
             storage = _get_user_skill_storage(config)
-            if not storage.custom_skill_exists(skill_name) and not storage.get_skill_history_file(skill_name).exists():
+            if not storage.custom_skill_exists(skill_name) and not storage.custom_skill_history_exists(skill_name):
                 return None
             return storage.read_history(skill_name)
 
@@ -702,7 +702,7 @@ async def rollback_custom_skill(skill_name: str, body: SkillRollbackRequest, req
             # history-file read are blocking filesystem IO that must stay off the
             # event loop — the same rule get_custom_skill_history applies above.
             storage = _get_user_skill_storage(config)
-            if not storage.custom_skill_exists(skill_name) and not storage.get_skill_history_file(skill_name).exists():
+            if not storage.custom_skill_exists(skill_name) and not storage.custom_skill_history_exists(skill_name):
                 return storage, None
             return storage, storage.read_history(skill_name)
 
@@ -722,8 +722,7 @@ async def rollback_custom_skill(skill_name: str, body: SkillRollbackRequest, req
         def _read_current_content() -> str | None:
             # Worker thread: the post-scan read of the file being replaced is
             # blocking filesystem IO (#5747), same rule as the history read.
-            skill_file = storage.get_custom_skill_file(skill_name)
-            return skill_file.read_text(encoding="utf-8") if skill_file.exists() else None
+            return storage.read_custom_skill(skill_name) if storage.custom_skill_exists(skill_name) else None
 
         current_content = await asyncio.to_thread(_read_current_content)
         history_entry = {
@@ -744,8 +743,7 @@ async def rollback_custom_skill(skill_name: str, body: SkillRollbackRequest, req
             # The restore write and its history entry must settle together, and
             # the prompt cache must reflect the restored content, before a
             # cancelled caller unwinds.
-            await asyncio.to_thread(storage.write_custom_skill, skill_name, SKILL_MD_FILE, target_content)
-            await asyncio.to_thread(storage.append_history, skill_name, history_entry)
+            await asyncio.to_thread(storage.save_custom_skill, skill_name, target_content, history_meta=history_entry)
             await refresh_user_skills_system_prompt_cache_async(get_effective_user_id())
 
         await await_drained(_drain_skill_mutation("rollback", _persist_rollback))
