@@ -56,8 +56,9 @@ def mock_app_config():
     config = MagicMock()
     config.models = [model]
     config.token_usage.enabled = False
-    config.skills.deferred_discovery = False
-    config.skills.container_path = "/mnt/skills"
+    from deerflow.config.skills_config import SkillsConfig
+
+    config.skills = SkillsConfig()
     config.tool_search.enabled = False
     config.database.checkpoint_channel_mode = "full"
     config.database.checkpoint_delta.snapshot_frequency = 10
@@ -71,6 +72,7 @@ def client(mock_app_config, tmp_path):
     import deerflow.skills.storage as _storage_mod
     from deerflow.skills.storage.local_skill_storage import LocalSkillStorage
 
+    mock_app_config.skills.path = str(tmp_path)
     _storage_mod._default_skill_storage = LocalSkillStorage(host_path=str(tmp_path))
     with patch("deerflow.client.get_app_config", return_value=mock_app_config):
         return DeerFlowClient()
@@ -3625,6 +3627,7 @@ class TestScenarioConfigManagement:
 
             client._agent = MagicMock()  # Simulate re-created agent
             with (
+                patch("deerflow.skills.storage.user_scoped_skill_storage.UserScopedSkillStorage.set_skill_enabled_state"),
                 patch("deerflow.skills.storage.local_skill_storage.LocalSkillStorage.load_skills", side_effect=[[skill], [toggled]]),
                 patch("deerflow.client.ExtensionsConfig.resolve_config_path", return_value=config_file),
                 patch("deerflow.client.get_extensions_config", return_value=ext_config),
@@ -3951,6 +3954,7 @@ class TestScenarioSkillInstallAndUse:
             config_file.write_text("{}")
 
             with (
+                patch("deerflow.skills.storage.user_scoped_skill_storage.UserScopedSkillStorage.set_skill_enabled_state"),
                 patch("deerflow.skills.storage.local_skill_storage.LocalSkillStorage.load_skills", side_effect=[[installed_skill], [disabled_skill]]),
                 patch("deerflow.client.ExtensionsConfig.resolve_config_path", return_value=config_file),
                 patch("deerflow.client.get_extensions_config", return_value=ext_config),
@@ -4597,6 +4601,7 @@ class TestConfigUpdateErrors:
             config_file.write_text("{}")
 
             with (
+                patch("deerflow.skills.storage.user_scoped_skill_storage.UserScopedSkillStorage.set_skill_enabled_state"),
                 patch("deerflow.skills.storage.local_skill_storage.LocalSkillStorage.load_skills", side_effect=[[skill], []]),
                 patch("deerflow.client.ExtensionsConfig.resolve_config_path", return_value=config_file),
                 patch("deerflow.client.get_extensions_config", return_value=ext_config),
@@ -5216,6 +5221,7 @@ class TestBugAgentInvalidationInconsistency:
             config_file.write_text("{}")
 
             with (
+                patch("deerflow.skills.storage.user_scoped_skill_storage.UserScopedSkillStorage.set_skill_enabled_state"),
                 patch("deerflow.skills.storage.local_skill_storage.LocalSkillStorage.load_skills", side_effect=[[skill], [updated]]),
                 patch("deerflow.client.ExtensionsConfig.resolve_config_path", return_value=config_file),
                 patch("deerflow.client.get_extensions_config", return_value=ext_config),

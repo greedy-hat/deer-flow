@@ -41,7 +41,9 @@ Assign the configured `production` label to the version you want to serve.
 Skills use literal prompt text; `{{variables}}` are not compiled. Publishing
 another version in the Langfuse UI only changes runtime behavior after you
 move the serving label. After publishing, call the existing admin endpoint
-`POST /api/skills/reload` on each worker to refresh discovery/prompt caches.
+`POST /api/skills/reload` to refresh discovery/prompt caches. Workers sharing
+the extensions configuration directory observe the shared reset marker;
+workers using separate configuration directories need separate reload calls.
 Reads and slash activation fetch the serving version directly, without an
 SDK stale-cache fallback or sandbox acquisition.
 
@@ -74,7 +76,9 @@ Langfuse project and allow only trusted operators to edit public skills.
 Remote errors fail the read/save rather than silently using a local copy.
 Concurrent writes (including simultaneous creates/imports) create independent
 immutable versions; the last label update wins. There is no compare-and-swap
-editing lock across Gateway processes.
+editing lock in Langfuse. Gateway edit and rollback requests sharing the same
+local storage directory serialize predecessor reads and saves; direct Langfuse
+writers and workers on separate filesystems do not share that lock.
 
 Langfuse's [version and label semantics](https://langfuse.com/docs/prompt-management/features/prompt-version-control)
 also apply when managing prompts directly in its UI.

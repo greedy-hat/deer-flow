@@ -1,5 +1,12 @@
 ### Tool System (`packages/harness/deerflow/tools/`)
 
+`artifact_registry.py` checks remote file suffixes against the complete parsed
+URL path without case sensitivity. Free-text URL and sandbox-path extraction
+strips common trailing ASCII/CJK prose punctuation while preserving CJK
+closers paired with openers inside the detected reference (including literal
+glob directory names). Structured references remain literal. See
+[tool artifact middleware](../agents/middlewares/TOOL_ARTIFACTS.md).
+
 `task` and `batch_task` opt into JSON checks with `file:<path> json-valid`.
 See [subagents/AGENTS.md](../subagents/AGENTS.md) for read limits and UNVERIFIED semantics.
 Batch readers bound by assembly use its AppConfig output budget. Fit the complete escaped response under 10K and active per-tool/fallback limits; too-small envelopes stop reading. Numeric reader inputs are strict integers. Escape `<` in outer JSON to preserve untrusted data without exposing framework tags; decoding restores the document unchanged.
@@ -23,7 +30,10 @@ the same host reader serves; keep reading guidance separate from permission enfo
 
 Lead and bootstrap assembly pass the constructed `chat_model` to tool assembly.
 The cloned `write_file` budget hint uses that instance's effective `max_tokens`,
-including custom-agent and thinking-mode overrides; an absent cap omits the hint.
+including custom-agent and thinking-mode overrides; an absent or unusable cap
+(including non-finite values or caps that overflow the character estimate)
+omits the hint without aborting tool assembly. Guard estimate arithmetic as
+well as integer conversion; a huge finite cap can pass the latter.
 Only standalone tool discovery without a model falls back to the base profile.
 
 `get_available_tools(groups, include_mcp, model_name, subagent_enabled)` assembles:
@@ -57,6 +67,8 @@ Scheduled-task runtime note:
 
 Durable MCP task-management tools are added only while the process-local task submitter is installed. They expose bounded local task fields, including whether cancellation was requested, but never the remote handle. Cancellation records that request durably and returns immediately; the background service owns the remote call and retries. These remain ordinary business tools under an active skill's `allowed-tools` policy and must be declared explicitly.
 
+`list_background_tasks` accepts an optional `TaskStatus` filter and intersects it with `active_only`. Omitting it or passing `None` preserves existing calls. The tool returns the 20 most recent matching records; `count` is the number returned. The tool schema validates statuses, and internal callers must not silently ignore invalid values. Scope comes from the runtime, never model-supplied user, thread, or incarnation values.
+
 **Community tools** (`packages/harness/deerflow/community/`): optional integrations, each in its own subpackage and wired through `config.yaml`. Documented examples:
 - `tavily/` - Web search (5 results default) and web fetch (4KB limit)
 - `sofya/` - Web search (5 results default, per-result content capped at 2000 chars) and web fetch (4KB limit)
@@ -70,7 +82,7 @@ Durable MCP task-management tools are added only while the process-local task su
 
 The shared SSRF guard (`community/url_safety.py`) resolves hostnames with blocking `socket.getaddrinfo`, so async tools, Gateway routes, and the Playwright request guard (`BrowserSession._install_request_guard`, which runs on the shared browser loop) call `validate_public_http_url` (or a wrapper such as `validate_browser_url`) through `asyncio.to_thread`. The guard checks at validation time only, so a launched browser sends every TCP connection (HTTP, HTTPS, WebSocket) through its per-session loopback SOCKS5 proxy (`browser_automation/egress.py`, `bypass: <-loopback>`): Chromium hands it every hostname, and it resolves once via `resolve_browser_egress` → `url_safety.resolve_public_addresses` and connects to exactly those addresses, closing the DNS-rebinding window (`mcp/personal_network.py` pins the same way). Every `acquire_session`/`get_session` caller must pass `egress_resolver`, because a thread's first caller fixes its launch options. WebRTC UDP does not traverse a SOCKS proxy and is not pinned (out of scope, so this is not a complete egress guarantee). Delegated fetch services (crawl4ai, Browserless, fastcrw) resolve on their own side and cannot be pinned; CDP-attached Chrome has neither guard. The strict blocking-IO gate carries a `socket.getaddrinfo` rule for this; `tests/blocking_io/test_web_tool_url_validation.py` drives each web tool entry point, the request guard, and the egress proxy; `tests/test_browser_egress.py` pins the proxy protocol, the session/manager/router wiring, and (with Playwright installed) a real-Chromium rebinding case.
 
-Additional providers also live here (`boxlite`, `brave`, `browserless`, `crawl4ai`, `ddg_search`, `e2b_sandbox`, `exa`, `fastcrw`, `groundroute`, `infoquest`, `searxng`, `serper`, `serply`, `sofya`, `tencent_wsa`, `tenki`, `unbrowse`); see each subpackage for specifics. `tencent_wsa` uses Tencent Cloud Web Search's service API key endpoint (`TENCENTCLOUD_WSA_APIKEY`), not Tencent Cloud SecretId/SecretKey signing. Its `max_results` is capped at 50; requests above 10 use Tencent's optional `Cnt` parameter, which needs a Tencent Cloud plan that supports it. E2B bootstrap is required. If it fails, the provider kills and closes the unusable remote sandbox. New sandbox creation raises an error. Warm-pool reclaim and remote discovery discard the sandbox and continue acquisition. E2B mounts remain optional.
+Additional providers also live here (`boxlite`, `brave`, `browserless`, `crawl4ai`, `ddg_search`, `e2b_sandbox`, `exa`, `fastcrw`, `groundroute`, `infoquest`, `searxng`, `serper`, `serply`, `sofya`, `tencent_wsa`, `tenki`, `unbrowse`); see each subpackage for specifics. Browserless authenticates only from the `token` query parameter or `Authorization` header and rejects unknown body keys, so `BrowserlessClient._auth_params()` carries the token for every endpoint; never add it to the JSON body. `tencent_wsa` uses Tencent Cloud Web Search's service API key endpoint (`TENCENTCLOUD_WSA_APIKEY`), not Tencent Cloud SecretId/SecretKey signing. Its `max_results` is capped at 50; requests above 10 use Tencent's optional `Cnt` parameter, which needs a Tencent Cloud plan that supports it. E2B bootstrap is required. If it fails, the provider kills and closes the unusable remote sandbox. New sandbox creation raises an error. Warm-pool reclaim and remote discovery discard the sandbox and continue acquisition. E2B mounts remain optional.
 
 E2B output sync records remote file versions and actual host file metadata in a thread-local manifest. The manifest binds to the remote sandbox ID. A complete output listing removes entries for deleted files. This avoids repeat downloads when the host filesystem rounds modification times. A single release-time sync pass is bounded by aggregate ceilings (`_MAX_SYNC_TOTAL_BYTES`, `_MAX_SYNC_FILES`, `_SYNC_DEADLINE_SECONDS`) on top of the per-file `_MAX_DOWNLOAD_SIZE` cap, so a pathological outputs tree cannot make release download unboundedly; a truncated pass logs what it dropped and leaves the manifest un-pruned (only entries observed in that pass are reconciled), so files it never reached are retried on the next release rather than being forgotten.
 
