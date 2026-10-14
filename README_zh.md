@@ -1,6 +1,6 @@
 # 🦌 DeerFlow - 2.0
 
-本分支面向云计算技术支持，使用 [Langfuse 管理纯文本 Skills 版本](docs/langfuse-skills.md)。示例配置已选择 Langfuse，加载 Skill 指令不需要启动沙箱。
+本分支面向云计算技术支持，使用 [Langfuse 管理纯文本 Skills 版本](docs/langfuse-skills.md)。示例配置已选择 Langfuse，Skill 指令同步为文件视图后通过沙箱加载。
 
 [English](./README.md) | 中文 | [日本語](./README_ja.md) | [Français](./README_fr.md) | [Русский](./README_ru.md) | [Português](./README_pt.md)
 

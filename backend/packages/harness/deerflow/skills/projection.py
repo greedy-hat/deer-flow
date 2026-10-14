@@ -48,9 +48,6 @@ class SkillProjectionPaths:
 
 
 def get_skill_projection_paths(storage: SkillStorage) -> SkillProjectionPaths:
-    if getattr(storage, "text_only", False) is True:
-        root = storage.get_skills_root_path() / ".sandbox-empty" / storage.user_id
-        return SkillProjectionPaths(*(root / category for category in ("public", "custom", "legacy", "integrations")))
     from deerflow.config.paths import get_paths
 
     paths = getattr(storage, "_paths", None) or get_paths()
@@ -347,6 +344,10 @@ def _extensions_state() -> dict:
 
 def _source_signature(storage: SkillStorage, scope: str) -> str:
     digest = hashlib.sha256()
+    if getattr(storage, "text_only", False) is True:
+        # Include the live catalog so tombstones remove cached sandbox entries.
+        catalog = [(skill.category.value, skill.name) for skill in storage.load_skills(enabled_only=False)]
+        digest.update(json.dumps(sorted(catalog), separators=(",", ":")).encode())
     host_root = storage.get_skills_root_path()
     if scope == "public":
         _update_tree_digest(digest, host_root / SkillCategory.PUBLIC.value, "public")
@@ -459,6 +460,8 @@ def _thread_projection_is_fresh(
 
 
 def _load_public_skills(storage: SkillStorage, *, enabled_only: bool) -> list[Skill]:
+    if getattr(storage, "text_only", False) is True:
+        return [skill for skill in storage.load_skills(enabled_only=enabled_only) if skill.category == SkillCategory.PUBLIC]
     from deerflow.config.extensions_config import ExtensionsConfig
 
     public_root = storage.get_skills_root_path() / SkillCategory.PUBLIC.value
@@ -685,11 +688,10 @@ def _public_projection_is_fresh(storage: SkillStorage, paths: SkillProjectionPat
 
 def ensure_skill_projections(storage: SkillStorage) -> SkillProjectionPaths:
     """Repair stale projection scopes, otherwise leave their inodes untouched."""
-    paths = get_skill_projection_paths(storage)
     if getattr(storage, "text_only", False) is True:
-        for root in (paths.public, paths.custom, paths.legacy, paths.integrations):
-            root.mkdir(parents=True, exist_ok=True)
-        return paths
+        # Refresh remote text snapshots before checking filesystem signatures.
+        storage.load_skills(enabled_only=False)
+    paths = get_skill_projection_paths(storage)
 
     try:
         public_is_fresh = _public_projection_is_fresh(storage, paths)

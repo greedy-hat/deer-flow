@@ -128,67 +128,46 @@ def test_deleted_and_unpublished_skills_are_not_discovered(storage):
     assert list(store._iter_skill_files()) == []
 
 
-def test_snapshots_are_stable_and_sandboxes_get_empty_views(storage):
-    from deerflow.skills.projection import ensure_skill_projections
+def test_snapshots_are_stable_and_sandboxes_receive_text_views(storage, monkeypatch):
+    from deerflow.skills.projection import ensure_skill_projections, ensure_thread_skill_projection
     from deerflow.skills.types import SkillCategory
 
     store, client = storage
+    monkeypatch.setattr("deerflow.skills.projection._extensions_state", lambda: {})
+    client.api.prompts.list.return_value = SimpleNamespace(data=[SimpleNamespace(name="deerflow/skills/custom/alice/cloud-support")], meta=SimpleNamespace(total_pages=1))
+    client.get_prompt.return_value = SimpleNamespace(prompt=markdown(), config={})
     path = store._snapshot(SkillCategory.CUSTOM, "cloud-support", markdown())
     before = path.stat().st_mtime_ns
     store._snapshot(SkillCategory.CUSTOM, "cloud-support", markdown())
     assert path.stat().st_mtime_ns == before
     views = ensure_skill_projections(store)
-    for root in (views.public, views.custom, views.legacy, views.integrations):
-        assert list(root.iterdir()) == []
-    client.api.prompts.list.assert_not_called()
+    assert (views.custom / "cloud-support" / "SKILL.md").read_text() == markdown()
+    restricted = ensure_thread_skill_projection(store, "restricted", set())
+    assert not (restricted.custom / "cloud-support").exists()
+    client.get_prompt.return_value = SimpleNamespace(prompt=markdown(), config={"deleted": True})
+    ensure_skill_projections(store)
+    assert not (views.custom / "cloud-support").exists()
 
 
 @pytest.mark.asyncio
-async def test_read_skill_without_any_sandbox_and_keep_range_semantics(storage, monkeypatch):
+async def test_read_skill_uses_sandbox_and_keeps_virtual_path(monkeypatch):
+    from unittest.mock import AsyncMock
+
     from deerflow.sandbox import tools
-    from deerflow.skills.types import SkillCategory
 
-    store, client = storage
-    client.get_prompt.return_value = SimpleNamespace(prompt=markdown(), config={})
-    path = store._snapshot(SkillCategory.CUSTOM, "cloud-support", markdown())
-    from deerflow.skills.parser import parse_skill_file
-
-    skill = parse_skill_file(path, SkillCategory.CUSTOM)
-    monkeypatch.setattr(store, "load_skills", lambda **kwargs: [skill])
-    monkeypatch.setattr("deerflow.skills.storage.get_or_new_user_skill_storage", lambda *args, **kwargs: store)
-    monkeypatch.setattr("deerflow.skills.loading.is_backend_skill_path", lambda path: path.startswith("/mnt/skills/"))
+    sandbox = MagicMock()
+    sandbox.read_file.return_value = markdown()
+    initialize_async = AsyncMock(return_value=sandbox)
+    monkeypatch.setattr(tools, "ensure_sandbox_initialized_async", initialize_async)
+    monkeypatch.setattr(tools, "ensure_sandbox_initialized", lambda runtime: sandbox)
+    monkeypatch.setattr(tools, "ensure_thread_directories_exist", lambda runtime: None)
+    monkeypatch.setattr(tools, "is_local_sandbox", lambda runtime: False)
     monkeypatch.setattr(tools, "_is_disabled_skill_path", lambda *args, **kwargs: False)
-
-    def no_sandbox(*args, **kwargs):
-        pytest.fail("Skill loading acquired a sandbox")
-
-    monkeypatch.setattr(tools, "ensure_sandbox_initialized", no_sandbox)
-    monkeypatch.setattr(tools, "ensure_sandbox_initialized_async", no_sandbox)
     runtime = SimpleNamespace(context={"user_id": "alice"}, state={})
-    virtual_path = "/mnt/skills/custom/cloud-support/SKILL.md"
-    assert await tools.read_file_tool.coroutine(runtime, virtual_path) == markdown()
-    assert await tools.read_file_tool.coroutine(runtime, virtual_path, start_line=2, end_line=3) == "name: cloud-support\ndescription: Cloud troubleshooting"
-    assert "exceeds" in await tools.read_file_tool.coroutine(runtime, virtual_path, start_line=99)
-    assert "Error:" in await tools.read_file_tool.coroutine(runtime, "/mnt/skills/custom/cloud-support/scripts/run.sh")
-
-
-def test_agent_allowlist_denies_host_read(storage, monkeypatch):
-    from deerflow.skills.loading import available_skill_names, read_backend_skill
-    from deerflow.skills.parser import parse_skill_file
-    from deerflow.skills.types import SkillCategory
-
-    store, client = storage
-    path = store._snapshot(SkillCategory.CUSTOM, "cloud-support", markdown())
-    skill = parse_skill_file(path, SkillCategory.CUSTOM)
-    monkeypatch.setattr(store, "load_skills", lambda **kwargs: [skill])
-    monkeypatch.setattr("deerflow.skills.storage.get_or_new_user_skill_storage", lambda *args, **kwargs: store)
-    token = available_skill_names.set(set())
-    try:
-        with pytest.raises(PermissionError):
-            read_backend_skill(SimpleNamespace(context={"user_id": "alice"}), "/mnt/skills/custom/cloud-support/SKILL.md")
-    finally:
-        available_skill_names.reset(token)
-    client.get_prompt.assert_not_called()
+    path = "/mnt/skills/custom/cloud-support/SKILL.md"
+    assert await tools.read_file_tool.coroutine(runtime, path) == markdown()
+    initialize_async.assert_awaited_once()
+    sandbox.read_file.assert_called_once_with(path)
 
 
 @pytest.mark.asyncio
@@ -286,43 +265,6 @@ def test_factory_selects_langfuse_for_public_and_user_scopes(storage, monkeypatc
         assert client.create_prompt.call_args.kwargs["labels"] == ["staging"]
     finally:
         reset_skill_storage()
-
-
-@pytest.mark.asyncio
-async def test_parallel_agents_keep_independent_allowlists(monkeypatch):
-    import asyncio
-
-    from langchain_core.messages import ToolMessage
-
-    from deerflow.sandbox.middleware import SandboxMiddleware
-    from deerflow.skills.loading import available_skill_names
-
-    first = SandboxMiddleware(available_skills={"first"})
-    second = SandboxMiddleware(available_skills={"second"})
-    request = SimpleNamespace(runtime=SimpleNamespace(state={}, context={}))
-
-    async def handler(_request):
-        before = available_skill_names.get()
-        await asyncio.sleep(0)
-        assert available_skill_names.get() == before
-        return ToolMessage(content=next(iter(before)), tool_call_id="read")
-
-    results = await asyncio.gather(first.awrap_tool_call(request, handler), second.awrap_tool_call(request, handler))
-    assert [result.content for result in results] == ["first", "second"]
-    assert available_skill_names.get() is None
-
-
-def test_restricted_agent_does_not_acquire_sandbox_for_text_skills(monkeypatch):
-    from deerflow.sandbox.middleware import SandboxMiddleware
-
-    monkeypatch.setattr("deerflow.skills.loading.backend_skills_enabled", lambda: True)
-
-    def no_sandbox():
-        pytest.fail("Text skills requested a sandbox provider")
-
-    monkeypatch.setattr("deerflow.sandbox.middleware.get_sandbox_provider", no_sandbox)
-    middleware = SandboxMiddleware(available_skills={"cloud-support"})
-    assert middleware._prepare_agent_skill_projection("thread", user_id="alice") is None
 
 
 def test_skill_authoring_prompt_uses_self_contained_text():

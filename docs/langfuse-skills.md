@@ -44,8 +44,9 @@ move the serving label. After publishing, call the existing admin endpoint
 `POST /api/skills/reload` to refresh discovery/prompt caches. Workers sharing
 the extensions configuration directory observe the shared reset marker;
 workers using separate configuration directories need separate reload calls.
-Reads and slash activation fetch the serving version directly, without an
-SDK stale-cache fallback or sandbox acquisition.
+Skill discovery refreshes snapshots from the serving version without an SDK
+stale-cache fallback. File reads use the sandbox and its authorization gate;
+slash activation reads the stored instruction through the existing middleware.
 
 Public prompts are shared and read-only in DeerFlow. Custom prompts use
 `deerflow/skills/custom/<safe-user-id>/<skill-name>`; the user ID is resolved
@@ -61,7 +62,7 @@ custom `.skill` export keep their existing interfaces. Imports accept a ZIP
 with only `<skill-name>/SKILL.md`; packages containing anything else fail
 validation. `skill_manage` support-file operations are rejected. Local files
 under the DeerFlow home's `langfuse-skills/` are disposable parser/export
-snapshots, not the source of truth, and are not mounted into sandboxes.
+snapshots, not the source of truth, and provide the source files for sandbox Skills views.
 
 Existing repository skill packages and JSONL history are left untouched and
 are not automatically imported. Most bundled skills depend on scripts or
@@ -73,7 +74,8 @@ default remains the file backend for embedded clients that omit skills config.
 
 Langfuse credentials grant the Gateway project-wide access: protect the
 Langfuse project and allow only trusted operators to edit public skills.
-Remote errors fail the read/save rather than silently using a local copy.
+Remote errors fail discovery/save rather than silently using a local copy.
+Sandbox reads use the file view prepared for the run.
 Concurrent writes (including simultaneous creates/imports) create independent
 immutable versions; the last label update wins. There is no compare-and-swap
 editing lock in Langfuse. Gateway edit and rollback requests sharing the same

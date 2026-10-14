@@ -67,6 +67,9 @@ class LangfuseSkillStorage(UserScopedSkillStorage):
         from deerflow.skills.projection import skill_projection_read_lock
 
         target = self.get_custom_skill_file(name) if category == SkillCategory.CUSTOM else self._host_root / "public" / name / SKILL_MD_FILE
+        # Projection rebuilds rediscover skills while holding the mutation lock.
+        if target.is_file() and target.read_text(encoding="utf-8") == content:
+            return target
         # Snapshot refresh must not recursively rebuild a projection/catalog.
         with skill_projection_read_lock(self):
             if target.is_file() and target.read_text(encoding="utf-8") == content:
@@ -80,12 +83,6 @@ class LangfuseSkillStorage(UserScopedSkillStorage):
             finally:
                 temporary.unlink(missing_ok=True)
         return target
-
-    def _skill_projection_mutation(self, **kwargs):
-        from deerflow.skills.projection import _projection_lock, get_skill_projection_paths
-
-        # Text skills are never exposed through a sandbox filesystem view.
-        return _projection_lock(get_skill_projection_paths(self).custom.parent)
 
     def _iter_skill_files(self):
         scopes = [(SkillCategory.PUBLIC, f"{self._prefix}/public/", self._host_root / "public")]
